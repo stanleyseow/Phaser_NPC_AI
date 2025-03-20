@@ -22,6 +22,11 @@ class preload extends Phaser.Scene {
       frameHeight: 64,
     });
 
+    this.load.spritesheet("enemy3", "assets/enemy3-64x64.png", {
+      frameWidth: 64,
+      frameHeight: 64,
+    });
+
 
     this.load.spritesheet("sword", "assets/swordSwing-192x192.png", {
       frameWidth: 192,
@@ -36,10 +41,22 @@ class preload extends Phaser.Scene {
 
     this.load.spritesheet('coin', 'assets/coin.png',{ frameWidth:32, frameHeight:32 });
 
+    this.load.spritesheet("kniveImg", "assets/knife-32x32.png", {
+      frameWidth: 32,
+      frameHeight: 32,
+    });
+    
   }
 
   create() {
     console.log("*** preload scene");
+
+    this.anims.create({
+      key: "knifeAnim",
+      frames: this.anims.generateFrameNumbers("kniveImg", { start: 0, end: 15 }),
+      frameRate: 15,
+      repeat: -1,
+    });
 
 this.anims.create({
       key: "gen-up",
@@ -144,6 +161,47 @@ this.anims.create({
     this.anims.create({
       key: "enemy2-right",
       frames: this.anims.generateFrameNumbers("enemy2", {
+        start: 144,
+        end: 151,
+      }),
+      frameRate: 5,
+      repeat: -1,
+    });
+
+
+    this.anims.create({
+      key: "enemy3-up",
+      frames: this.anims.generateFrameNumbers("enemy3", {
+        start: 105,
+        end: 112,
+      }),
+      frameRate: 5,
+      repeat: -1,
+    });
+
+    this.anims.create({
+      key: "enemy3-left",
+      frames: this.anims.generateFrameNumbers("enemy3", {
+        start: 118,
+        end: 125,
+      }),
+      frameRate: 5,
+      repeat: -1,
+    });
+
+    this.anims.create({
+      key: "enemy3-down",
+      frames: this.anims.generateFrameNumbers("enemy3", {
+        start: 131,
+        end: 138,
+      }),
+      frameRate: 5,
+      repeat: -1,
+    });
+
+    this.anims.create({
+      key: "enemy3-right",
+      frames: this.anims.generateFrameNumbers("enemy3", {
         start: 144,
         end: 151,
       }),

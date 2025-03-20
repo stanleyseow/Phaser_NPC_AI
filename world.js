@@ -17,6 +17,7 @@ class world extends Phaser.Scene {
     this.load.image("pippoya", "assets/pippoya.png");
     this.load.image("raffles", "assets/rafflesTiless-01.png");
     this.load.image("tree", "assets/tree.png");
+
   }
 
   create() {
@@ -65,10 +66,12 @@ class world extends Phaser.Scene {
     this.apiThrottler = new APIThrottler(10);
 
 
-    this.npc1 = this.physics.add.sprite(200, 200, "enemy")
+    this.npc1 = this.physics.add.sprite(200, 400, "enemy")
     .play("enemy-down").setImmovable().setName("npc1")
-    this.npc2 = this.physics.add.sprite(200, 300, "enemy2")
+    this.npc2 = this.physics.add.sprite(1320, 250, "enemy2")
     .play("enemy2-down").setImmovable().setName("npc2")
+    this.npc3 = this.physics.add.sprite(700, 250, "enemy3")
+    .play("enemy3-down").setImmovable().setName("npc3")
 
 
 
@@ -79,7 +82,7 @@ class world extends Phaser.Scene {
      this.coinGroup = this.physics.add.group({
       key: 'coin',
       repeat: 5,
-      setXY: { x: 250, y: 175, stepX: 70 }
+      setXY: { x: 250, y: 175, stepX: 200 }
     });
     
     this.npc1.setCollideWorldBounds(true); // don't go out of the this.map
@@ -91,7 +94,7 @@ class world extends Phaser.Scene {
       this,
       this.player,
       "enemy",
-      true,
+      1,
       this.coinGroup
     );
     this.npcController2 = new NPCAIController(
@@ -99,13 +102,22 @@ class world extends Phaser.Scene {
       this,
       this.player,
       "enemy2",
-      false,
+      0,
+      this.coinGroup
+    );
+    this.npcController3 = new NPCAIController(
+      this.npc3,
+      this,
+      this.player,
+      "enemy3",
+      0,
       this.coinGroup
     );
 
     // Start the AI decision cycle (queries every 5 seconds)
     this.npcController.startAI(7000);
     this.npcController2.startAI(9000);
+    this.npcController3.startAI(8000);
 
     // player cannot bump into decorations
     this.decorLayer.setCollisionByExclusion(-1, true);
@@ -122,12 +134,13 @@ class world extends Phaser.Scene {
     });
 
     this.physics.add.collider(this.player, this.buildingLayer);
-    this.physics.add.collider(this.npc1, this.buildingLayer);
-    this.physics.add.collider(this.npc2, this.buildingLayer);
+    this.physics.add.collider([this.npc1, this.npc2, this.npc3], this.buildingLayer);
 
-    this.physics.add.collider(this.player, this.npc1);
-    this.physics.add.collider(this.player, this.npc2);
-    this.physics.add.collider(this.npc1, this.npc2);
+    this.physics.add.collider(this.player, [this.npc1, this.npc2, this.npc3]);
+
+    this.physics.add.collider(this.npc1, [this.npc2, this.npc3]);
+    this.physics.add.collider(this.npc2, [this.npc1, this.npc3]);
+    this.physics.add.collider(this.npc3, [this.npc1, this.npc2]);
 
     let blackBox = new Phaser.Geom.Rectangle(0, 540, 640, 100);
     var graphics = this.add.graphics({ fillStyle: { color: 0x000000 } });
@@ -142,22 +155,22 @@ class world extends Phaser.Scene {
     this.cameras.main.setBounds(0, 0, map.widthInPixels, map.heightInPixels);
 
     this.minimap1 = this.cameras
-      .add(390, 510, 120, 120)
+      .add(520, 380, 120, 120)
       .setZoom(0.4)
       .setName("mini1");
     this.minimap1.setBackgroundColor(0x000000);
-    this.minimap1.startFollow(this.npc1);
+    this.minimap1.startFollow(this.player);
 
-    this.minimap2 = this.cameras
-    .add(520, 510, 120, 120)
-    .setZoom(0.4)
-    .setName("mini2");
-  this.minimap2.setBackgroundColor(0x000000);
-  this.minimap2.startFollow(this.npc2);
+  //   this.minimap2 = this.cameras
+  //   .add(520, 510, 120, 120)
+  //   .setZoom(0.4)
+  //   .setName("mini2");
+  // this.minimap2.setBackgroundColor(0x000000);
+  // this.minimap2.startFollow(this.npc2);
 
-    // Make minimap cameras ignore this text
-  this.minimap1.ignore(this.debugText);
-  this.minimap2.ignore(this.debugText);
+  //   // Make minimap cameras ignore this text
+  // this.minimap1.ignore(this.debugText);
+  // this.minimap2.ignore(this.debugText);
 
 
 
@@ -169,6 +182,8 @@ class world extends Phaser.Scene {
     // Update NPC AI
     this.npcController.update();
     this.npcController2.update();
+    this.npcController3.update();
+
 
     // Update debug text
     this.updateDebugText();
@@ -206,28 +221,53 @@ class world extends Phaser.Scene {
   } /////////////////// end of update //////////////////////////////
 
   updateDebugText() {
-    //const waitTime = this.apiThrottler.getTimeUntilNextAvailable();
-    //const requestCount = this.apiThrottler.requestTimestamps.length;
-    //const limit = this.apiThrottler.maxRequestsPerMinute;
+    // Get distance between NPCs
+    const playerDist1 = Phaser.Math.Distance.Between(
+      this.npc1.x, this.npc1.y,
+      this.player.x, this.player.y
+    );
+
+    const playerDist2 = Phaser.Math.Distance.Between(
+      this.npc2.x, this.npc2.y,
+      this.player.x, this.player.y
+    );
+
+    const playerDist3 = Phaser.Math.Distance.Between(
+      this.npc3.x, this.npc3.y,
+      this.player.x, this.player.y
+    );
 
     this.debugText.setText(
-        `npc1 task: ${
+        `NPC1 (Jedi): ${
           this.npcController.currentTask
             ? this.npcController.currentTask.action
             : "None"
-        }\n` +
+        } ` +
+        `Pos: (${Math.round(this.npc1.x)}, ${Math.round(this.npc1.y)}) | ` +
+        `Talks: ${this.npcController.memory.filter(a => a.action === 'talk').length} | ` +
+        `Player: ${playerDist1 < 100 ? 'Nearby' : 'Far'}\n` +
 
-        `npc1: ${this.npc1.x}, ${this.npc1.x}\n` +
-
-        `npc2 task: ${
+        `NPC2 (Sith): ${
           this.npcController2.currentTask
             ? this.npcController2.currentTask.action
             : "None"
-        }\n` +
-        
-        `npc2: ${this.npc2.x}, ${this.npc2.x} `
+        } ` +
+        `Pos: (${Math.round(this.npc2.x)}, ${Math.round(this.npc2.y)}) | ` +
+        `Talks: ${this.npcController2.memory.filter(a => a.action === 'talk').length} | ` +
+        `Player: ${playerDist2 < 100 ? 'Nearby' : 'Far'}\n`+
+
+        `NPC3 (Sith): ${
+          this.npcController3.currentTask
+            ? this.npcController3.currentTask.action
+            : "None"
+        } ` +
+        `Pos: (${Math.round(this.npc3.x)}, ${Math.round(this.npc3.y)}) | ` +
+        `Talks: ${this.npcController3.memory.filter(a => a.action === 'talk').length} | ` +
+        `Player: ${playerDist3 < 100 ? 'Nearby' : 'Far'}`
     );
   }
+
+
   // Function to jump to room1
   room1(player, tile) {
     console.log("room1 function");

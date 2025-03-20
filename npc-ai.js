@@ -27,9 +27,47 @@ window.NPCAIController = class NPCAIController {
     this.lastApiCallTime = 0;
     this.apiCallDelay = 5000; // 5 seconds in milliseconds
 
-    // Initialize physics
+      // Add reflection text object
+      // Comment out or remove reflection text initialization
+      /*
+      this.reflectionText = this.scene.add
+        .text(this.npc.x, this.npc.y + 40, "...", {
+          fontSize: "12px",
+          backgroundColor: "#333",
+          padding: 3,
+          fontStyle: 'italic'
+        })
+        .setOrigin(0.5);
+      */
+      
+      // Initialize physics
     this.scene.physics.world.enable(this.npc);
     this.npc.body.setCollideWorldBounds(true);
+
+    // Enhanced memory system
+  this.memoryStream = {
+    observations: [],
+    reflections: [],
+    plans: []
+  };
+  
+  // Memory configuration
+  this.memoryConfig = {
+    maxObservations: 20,
+    maxReflections: 10,
+    maxPlans: 5,
+    recencyWeight: 0.5,
+    importanceWeight: 0.3,
+    relevanceWeight: 0.2
+  };
+
+  // Planning system
+  this.currentPlan = {
+    dayLevel: null,
+    hourLevel: null,
+    immediateActions: []
+  };
+  
     
     // Debug flag
     this.debug = true;
@@ -43,12 +81,17 @@ window.NPCAIController = class NPCAIController {
   }
 
   update() {
-    // this.log("Update called", {
-    //   isProcessing: this.isProcessing,
-    //   queueLength: this.taskQueue.length,
-    //   isMoving: this.isMoving,
-    //   currentTarget: this.currentTarget
-    // });
+
+      // Update reflection text position to follow NPC
+      // if (this.reflectionText) {
+      //   this.reflectionText.setPosition(this.npc.x, this.npc.y + 40);
+        
+      //   // Update reflection text content
+      //   const currentReflection = this.memoryStream.reflections[this.memoryStream.reflections.length - 1];
+      //   if (currentReflection) {
+      //     this.reflectionText.setText(currentReflection.insight);
+      //   }
+      // }
 
     // Execute tasks if we're not busy and have tasks queued
     if (!this.isProcessing && this.taskQueue.length > 0) {
@@ -154,19 +197,37 @@ window.NPCAIController = class NPCAIController {
     const alignment = isJedi ? "Jedi Master" : "Sith Lord";
 
     // System prompt for AI
-    const systemPrompt = `You are an NPC controller. Respond ONLY with this exact JSON format and nothing else:
-{"action": "move|talk|collect|drop|follow|wander", "params": {}}
-  
-Valid parameters:
-- move: {"x": number, "y": number}
-- talk: {"message": string}
-- other actions: {}
-  
-CRITICAL: DO NOT add any text, comments, or formatting before or after the JSON.`;
+    const systemPrompt = `You are a ${alignment} NPC controller with memory and emotional awareness. 
+    Your personality and actions should reflect your ${alignment} nature:
+    ${isJedi ? 
+      "- As a Jedi: Prioritize following and talking the player, seeking player to join the jedi" : 
+      "- As a Sith: Prefer throw knive to player when nearby, be opportunistic, seek power through items and dominance"
+    }
+    
+    Respond ONLY with this exact JSON format:
+    // In the systemPrompt string, update the action list:
+    {"action": "move|talk|collect|drop|follow|wander|throwKnife", 
+    "params": {},
+    "reflection": "string describing thought process"}
+    
+    Valid parameters:
+    - move: {"x": number, "y": number}
+    - talk: {"message": string}
+    - throwKnife: {"target": "player"}
+    - other actions: {}
+    
+    CRITICAL: DO NOT add any text, comments, or formatting before or after the JSON.`;
 
     // User prompt with context
     const userPrompt = `Game state: ${JSON.stringify(context || this.gatherContext())}
 Choose next action. Return ONLY valid JSON.`;
+
+    this.log("Initiating AI decision process with current state:", {
+      position: `(${this.npc.x}, ${this.npc.y})`,
+      emotionalState: this.calculateEmotionalState(),
+      recentObservations: this.memoryStream.observations.slice(-2),
+      context: context || this.gatherContext()
+    });
 
     this.log("Sending API request with context:", context || this.gatherContext());
 
@@ -294,55 +355,145 @@ Choose next action. Return ONLY valid JSON.`;
     this.log("Adding action to queue:", action);
     this.taskQueue.push(action);
     
-    // Keep only last 5 actions in memory
+    // Keep only last 10 actions in memory (increased from 5)
     this.memory.push(action);
-    if (this.memory.length > 5) {
+    if (this.memory.length > 10) {
       this.memory.shift(); // Remove the oldest action
     }
     
-    this.log("Current memory (last 5 actions):", this.memory);
+    this.log("Current memory (last 10 actions):", this.memory);
+  }
+
+  // Update gatherContext to include more historical actions
+  gatherContext() {
+    const reflection = this.generateReflection();
+    
+    // Find nearest coin
+    const coins = this.coinGroup.getChildren().filter((coin) => coin.active);
+    const nearestCoin = coins.length > 0 ? 
+      this.scene.physics.closest(this.npc, coins) : null;
+    
+    const context = {
+      npc: { x: Math.round(this.npc.x), y: Math.round(this.npc.y) },
+      player: { x: Math.round(this.player.x), y: Math.round(this.player.y) },
+      hasItem: !!this.collectedItem,
+      nearPlayer:
+        Phaser.Math.Distance.Between(
+          this.npc.x,
+          this.npc.y,
+          this.player.x,
+          this.player.y
+        ) < 200,
+      itemsAvailable: this.coinGroup.countActive() > 0,
+      nearestCoin: nearestCoin ? { 
+        x: Math.round(nearestCoin.x), 
+        y: Math.round(nearestCoin.y),
+        distance: Math.round(Phaser.Math.Distance.Between(
+          this.npc.x, this.npc.y, 
+          nearestCoin.x, nearestCoin.y
+        ))
+      } : null,
+      lastActions: this.memory.slice(-5) // Include last 5 actions
+    };
+    
+    this.log("Gathered context:", context);
+    return context;
   }
 
   executeNextTask() {
-    if (this.taskQueue.length === 0) {
-      this.log("No tasks to execute");
-      this.isProcessing = false;
-      return;
-    }
-    
-    const task = this.taskQueue.shift();
-    this.log("Executing task:", task);
-
-    this.currentTask = task;
-    
-    // Execute based on action type
-    switch (task.action) {
-      case "move":
-        this.moveTo(task.params.x, task.params.y);
-        break;
-      case "talk":
-        this.speak(task.params.message);
-        // Immediate actions set isProcessing to false right away
-        setTimeout(() => { this.isProcessing = false; }, 100);
-        break;
-      case "collect":
-        this.collectNearestItem();
-        break;
-      case "drop":
-        this.dropItem();
-        // Immediate actions set isProcessing to false right away
-        setTimeout(() => { this.isProcessing = false; }, 100);
-        break;
-      case "follow":
-        this.followPlayer();
-        break;
-      case "wander":
-        this.wander();
-        break;
-      default:
-        this.log("Unknown action type:", task.action);
+      // Log memory stream and player interaction status
+      const playerInteractions = {
+        talks: this.memory.filter(a => a.action === 'talk').length,
+        follows: this.memory.filter(a => a.action === 'follow').length
+      };
+  
+      this.log("Memory Stream Status:", {
+        observations: this.memoryStream.observations.length,
+        reflections: {
+          total: this.memoryStream.reflections.length,
+          playerInteractions: playerInteractions,
+        },
+        plans: this.memoryStream.plans.length,
+        recentObservations: this.memoryStream.observations.slice(-2),
+        recentReflections: this.memoryStream.reflections.slice(-1)
+      });
+  
+      const now = Date.now();
+      if (now - this.lastTaskTime < this.taskInterval) {
+        // If not enough time has passed, re-queue the task
+        const task = this.taskQueue[0];
+        setTimeout(() => this.executeNextTask(), this.taskInterval - (now - this.lastTaskTime));
+        return;
+      }
+  
+      if (this.taskQueue.length === 0) {
+        this.log("No tasks to execute");
         this.isProcessing = false;
-    }
+        return;
+      }
+      
+      const task = this.taskQueue.shift();
+      this.log("Executing task:", task);
+      this.lastTaskTime = now;
+      this.currentTask = task;
+      
+      // Execute based on action type
+      switch (task.action) {
+        case "move":
+          this.moveTo(task.params.x, task.params.y);
+          break;
+        case "throwKnife":
+          this.throwKnife();
+          setTimeout(() => { this.isProcessing = false; }, 100);
+          break;
+        case "talk":
+          this.speak(task.params.message);
+          // Immediate actions set isProcessing to false right away
+          setTimeout(() => { this.isProcessing = false; }, 100);
+          break;
+        case "collect":
+          this.collectNearestItem();
+          break;
+        case "drop":
+          this.dropItem();
+          // Immediate actions set isProcessing to false right away
+          setTimeout(() => { this.isProcessing = false; }, 100);
+          break;
+        case "follow":
+          this.followPlayer();
+          break;
+        case "wander":
+          this.wander();
+          break;
+        default:
+          this.log("Unknown action type:", task.action);
+          this.isProcessing = false;
+      }
+  }
+
+
+  throwKnife() {
+    // Create and throw a knife at the player from enemy2
+      this.knife = this.physics.add.sprite(enemy.x, enemy.y, "knifeImg").play("knifeAnim");
+      knife.damage = 10;
+      knife.setScale(1); // Scale the knife as needed
+    
+      // Calculate direction from enemy to player
+      const angle = Phaser.Math.Angle.Between(this.npc.x, this.npc.y, this.player.x, this.player.y);
+      
+      // Set velocity based on angle
+      const speed = 200; // Adjust speed as needed
+      knife.body.velocity.x = Math.cos(angle) * speed;
+      knife.body.velocity.y = Math.sin(angle) * speed;
+      
+      // Rotate knife to face direction of travel
+      knife.rotation = angle + Math.PI/2; // Add offset if needed based on your knife sprite
+      
+      // Add collision with player
+      //this.physics.add.overlap(this.player, knife, this.handleKnifeHit, null, this);
+      //this.physics.add.overlap(this.enemies, knife, this.handleKnifeHitEnemy, null, this);
+      //this.knives.add(knife);
+
   }
 
   moveTo(x, y) {
@@ -432,8 +583,15 @@ Choose next action. Return ONLY valid JSON.`;
     }
 
     const nearestCoin = this.scene.physics.closest(this.npc, coins);
+    if (!nearestCoin) {
+      this.log("No nearest coin found");
+      this.isProcessing = false;
+      return;
+    }
+
     this.log(`Collecting coin at (${nearestCoin.x}, ${nearestCoin.y})`);
     this.isCollecting = true;
+    this.currentTarget = nearestCoin;  // Set the current target to the coin
     this.moveTo(nearestCoin.x, nearestCoin.y);
   }
 
@@ -486,48 +644,192 @@ Choose next action. Return ONLY valid JSON.`;
   }
 
   speak(message) {
-    this.log(`Speaking: "${message}"`);
-    const text = this.scene.add
-      .text(this.npc.x, this.npc.y - 40, message, {
-        fontSize: "16px",
-        backgroundColor: "#000",
-        padding: 5,
-      })
-      .setOrigin(0.5);
+      if (!message) {
+        this.log("No message to speak");
+        this.isProcessing = false;
+        return;
+      }
+  
+      const distance = Phaser.Math.Distance.Between(
+        this.npc.x,
+        this.npc.y,
+        this.player.x,
+        this.player.y
+      );
+  
+      if (distance > 150) {
+        this.log("Too far from player to speak");
+        this.isProcessing = false;
+        return;
+      }
+  
+      // Create speech text above player
+      const text = this.scene.add
+        .text(this.npc.x, this.npc.y - 40, message, {
+          fontSize: "14px",
+          backgroundColor: "#000",
+          padding: { x: 5, y: 5 },
+          color: '#ffffff'
+        })
+        .setOrigin(0.5)
+        .setDepth(100);
+  
+      // Destroy text after delay
+      this.scene.time.delayedCall(5000, () => {
+        if (text) text.destroy();
+      });
+    }
 
-    this.scene.time.delayedCall(3000, () => text.destroy());
+  
+
+  // New method to add observations
+  addObservation(observation) {
+    const timestamp = Date.now();
+    this.memoryStream.observations.push({
+      content: observation,
+      timestamp,
+      importance: this.calculateImportance(observation)
+    });
+
+    // Trim old observations
+    if (this.memoryStream.observations.length > this.memoryConfig.maxObservations) {
+      this.memoryStream.observations.shift();
+    }
   }
 
-  gatherContext() {
-    const context = {
-      npc: { x: Math.round(this.npc.x), y: Math.round(this.npc.y) },
-      player: { x: Math.round(this.player.x), y: Math.round(this.player.y) },
-      hasItem: !!this.collectedItem,
-      nearPlayer:
-        Phaser.Math.Distance.Between(
-          this.npc.x,
-          this.npc.y,
-          this.player.x,
-          this.player.y
-        ) < 200,
-      itemsAvailable: this.coinGroup.countActive() > 0,
-      lastActions: this.memory.slice(-5) // Include last 5 actions
-    };
+  // New method to calculate memory importance
+  calculateImportance(memory) {
+    // Basic importance calculation
+    let importance = 0;
     
-    this.log("Gathered context:", context);
-    return context;
+    // Higher importance for player interactions
+    if (memory.includes('player')) importance += 0.3;
+    
+    // Higher importance for item interactions
+    if (memory.includes('collect') || memory.includes('drop')) importance += 0.2;
+    
+    return Math.min(1, importance);
   }
 
+  // Enhanced context gathering
+  // Add new method for reflection
+  generateReflection() {
+    const isJedi = this.jediType === 1;
+    const recentActions = this.memory.slice(-3);
+    const emotionalState = this.calculateEmotionalState();
+    
+    let reflection = {
+      type: isJedi ? 'meditation' : 'contemplation',
+      insight: '',
+      influence: 0
+    };
+
+    // Analyze recent actions
+    if (recentActions.length > 0) {
+      const patterns = this.analyzeActionPatterns(recentActions);
+      reflection.insight = this.generateInsightBasedOnAlignment(patterns);
+      reflection.influence = this.calculateReflectionInfluence(patterns);
+    }
+
+    this.memoryStream.reflections.push(reflection);
+    return reflection;
+  }
+
+  analyzeActionPatterns(actions) {
+    return {
+      playerInteractions: actions.filter(a => a.action === 'follow' || a.action === 'talk').length,
+      itemInteractions: actions.filter(a => a.action === 'collect' || a.action === 'drop').length,
+      exploration: actions.filter(a => a.action === 'wander' || a.action === 'move').length
+    };
+  }
+
+  generateInsightBasedOnAlignment(patterns) {
+    const isJedi = this.jediType === 1;
+    
+    // Calculate distances and angle
+    const playerDistance = Phaser.Math.Distance.Between(
+      this.npc.x, this.npc.y,
+      this.player.x, this.player.y
+    );
+    
+    const playerAngle = Phaser.Math.RadToDeg(
+      Phaser.Math.Angle.Between(
+        this.npc.x, this.npc.y,
+        this.player.x, this.player.y
+      )
+    ).toFixed(0);
+    
+    const situation = `Player: ${Math.round(playerDistance)}px away at ${playerAngle}°`;
+
+    if (isJedi) {
+      let quote = "";
+      if (patterns.playerInteractions > 1) {
+        quote = "Through unity, we find strength in the Force.";
+      } else if (patterns.itemInteractions > 1) {
+        quote = "Possessions cloud the mind. Let them go.";
+      } else if (patterns.exploration > 1) {
+        quote = "Knowledge and wisdom come from exploration.";
+      } else {
+        quote = "Peace and serenity guide our path.";
+      }
+      return situation + "\n" + quote;
+    } else {
+      let quote = "";
+      if (patterns.playerInteractions > 1) {
+        quote = "Your potential for darkness grows stronger.";
+      } else if (patterns.itemInteractions > 1) {
+        quote = "Power comes to those who seize it.";
+      } else if (patterns.exploration > 1) {
+        quote = "The galaxy will bow before my might.";
+      } else {
+        quote = "Embrace your hatred, let it fuel you.";
+      }
+      return situation + "\n" + quote;
+    }
+  }
+
+  // Update useFallbackBehavior with more distinct alignment behaviors
   useFallbackBehavior() {
-    this.log("Using fallback behavior");
-    const fallbacks = [
-      () => this.wander(),
+    this.log("Using alignment-based fallback behavior");
+    const isJedi = this.jediType === 1;
+    
+    const fallbacks = isJedi ? [
       () => this.followPlayer(),
-      () => this.speak("The Force is unclear..."),
+      () => this.followPlayer(),  // Double weight for following
+      () => this.speak("May the Force be with you"),
+      () => this.wander()
+    ] : [
+      () => this.wander(),
+      () => this.wander(),  // Double weight for wandering
+      () => this.speak("You don't know the power of the dark side"),
+      () => this.collectNearestItem()
     ];
 
     fallbacks[Math.floor(Math.random() * fallbacks.length)]();
     this.retryCount = 0;
+  }
+
+ 
+  // New method to calculate emotional state
+  // Update calculateEmotionalState to consider alignment
+  calculateEmotionalState() {
+    const recentMemories = this.memoryStream.observations.slice(-5);
+    const isJedi = this.jediType === 1;
+    let state = 'neutral';
+    
+    // Simple emotion calculation based on recent events and alignment
+    const playerInteractions = recentMemories.filter(m => 
+      m.content.includes('player')).length;
+    
+    if (isJedi) {
+      if (playerInteractions > 3) state = 'serene';
+      if (this.collectedItem) state = 'mindful';
+    } else {
+      if (playerInteractions > 3) state = 'dominant';
+      if (this.collectedItem) state = 'possessive';
+    }
+    
+    return state;
   }
 
   startAI(interval = 5000) {
@@ -553,5 +855,42 @@ Choose next action. Return ONLY valid JSON.`;
       clearInterval(this.aiInterval);
     }
   }
-};
+
+  calculateReflectionInfluence(patterns) {
+    // Calculate influence based on action patterns
+    const influence = {
+      jedi: (patterns.playerInteractions * 0.4 + patterns.exploration * 0.2),
+      sith: (patterns.itemInteractions * 0.4 + patterns.exploration * 0.3)
+    };
+    
+    return Math.min(1, this.jediType === 1 ? influence.jedi : influence.sith);
+  }
+  
+
+
+// Update throwKnife method:
+  throwKnife() {
+    this.log("Throwing knife at player");
+    const knife = this.scene.physics.add.sprite(this.npc.x, this.npc.y, "knifeImg");
+    knife.play("knifeAnim");
+    knife.damage = 10;
+    knife.setScale(1);
+    
+    const angle = Phaser.Math.Angle.Between(
+      this.npc.x, this.npc.y, 
+      this.player.x, this.player.y
+    );
+    
+    const speed = 200;
+    knife.body.velocity.x = Math.cos(angle) * speed;
+    knife.body.velocity.y = Math.sin(angle) * speed;
+    knife.rotation = angle + Math.PI/2;
+    
+    // Auto-destroy knife after 2 seconds
+    this.scene.time.delayedCall(5000, () => {
+      knife.destroy();
+    });
+  }
+
+}
 
